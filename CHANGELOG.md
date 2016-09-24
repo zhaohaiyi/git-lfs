@@ -1,5 +1,243 @@
 # Git LFS Changelog
 
+## 1.4.1 (26 August, 2016)
+
+### Features
+
+* retry if file download failed #1454 (@larsxschneider)
+* Support wrapped clone in current directory #1478 (@ttaylorr)
+
+### Misc
+
+* Test `RetriableReader` #1482 (@ttaylorr)
+
+## 1.4.0 (19 August, 2016)
+
+### Features
+
+* Install LFS at the system level when packaged #1460 (@javabrett)
+* Fetch remote urls #1451 (@technoweenie)
+* add object Authenticated property #1452 (@technoweenie)
+* add support for `url.*.insteadof` in git config #1117, #1443 (@artagnon, @technoweenie)
+
+### Bugs
+
+* fix --include bug when multiple files have same lfs content #1458 (@technoweenie)
+* check the git version is ok in some key commands #1461 (@technoweenie)
+* fix duplicate error reporting #1445, #1453 (@dpursehouse, @technoweenie)
+* transfer/custom: encode "event" as lowercase #1441 (@ttaylorr)
+
+### Misc
+
+* docs/man: note GIT_LFS_PROGRESS #1469 (@ttaylorr)
+* Reword the description of HTTP 509 status #1467 (@dpursehouse)
+* Update fetch include/exclude docs for pattern matching #1455 (@ralfthewise)
+* config-next: API changes to the `config` package #1425 (@ttaylorr)
+* errors-next: Contextualize error messages #1463 (@ttaylorr, @technoweenie)
+* scope commands to not leak instances of themselves #1434 (@technoweenie)
+* Transfer manifest #1430 (@technoweenie)
+
+## 1.3.1 (2 August 2016)
+
+### Features
+
+* lfs/hook: teach `lfs.Hook` about `core.hooksPath` #1409 (@ttaylorr)
+
+### Bugs
+
+* distinguish between empty include/exclude paths #1411 (@technoweenie)
+* Fix sslCAInfo config lookup when host in config doesn't have a trailing slash #1404 (@dakotahawkins)
+
+### Misc
+
+* Use commands.Config instead of config.Config #1390 (@technoweenie)
+
+## 1.3.0 (21 July 2016)
+
+### Features
+
+* use proxy from git config #1173, #1358 (@jonmagic, @LizzHale, @technoweenie)
+* Enhanced upload/download of LFS content: #1265 #1279 #1297 #1303 #1367 (@sinbad)
+  * Resumable downloads using HTTP range headers
+  * Resumable uploads using [tus.io protocol](http://tus.io)
+  * Pluggable [custom transfer adapters](https://github.com/github/git-lfs/blob/master/docs/custom-transfers.md)
+* In git 2.9+, run "git lfs pull" in submodules after "git lfs clone" #1373 (@sinbad)
+* cmd,doc,test: teach `git lfs track --{no-touch,verbose,dry-run}` #1344 (@ttaylorr)
+* ⏳ Retry transfers with expired actions #1350 (@ttaylorr)
+* Safe track patterns #1346 (@ttaylorr)
+* Add checkout --unstaged flag #1262 (@orivej)
+* cmd/clone: add include/exclude via flags and config #1321 (@ttaylorr)
+* Improve progress reporting when files skipped #1296 (@sinbad)
+* Experimental file locking commands #1236, #1259, #1256, #1386 (@ttaylorr)
+* Implement support for GIT_SSH_COMMAND #1260 (@pdf)
+* Recognize include/exclude filters from config #1257 (@ttaylorr)
+
+### Bugs
+
+* Fix bug in Windows installer under Win32. #1200 (@teo-tsirpanis)
+* Updated request.GetAuthType to handle multi-value auth headers #1379 (@VladimirKhvostov)
+* Windows fixes #1374 (@sinbad)
+* Handle artifactory responses #1371 (@ttaylorr)
+* use `git rev-list --stdin` instead of passing each remote ref #1359 (@technoweenie)
+* docs/man: move "logs" subcommands from OPTIONS to COMMANDS #1335 (@ttaylorr)
+* test/zero-len: update test for git v2.9.1 #1369 (@ttaylorr)
+* Unbreak building httputil on OpenBSD #1360 (@jasperla)
+* WIP transferqueue race fix #1255 (@technoweenie)
+* Safety check to `comands.requireStdin` #1349 (@ttaylorr)
+* Removed CentOS 5 from dockers. Fixed #1295. #1298 (@javabrett)
+* Fix 'git lfs fetch' with a sha1 ref #1323 (@omonnier)
+* Ignore HEAD ref when fetching with --all #1310 (@ttaylorr)
+* Return a fully remote ref to reduce chances of ref clashes #1248 (@technoweenie)
+* Fix reporting of `git update-index` errors in `git lfs checkout` and `git lfs pull` #1400 (@technoweenie)
+
+### Misc
+
+* Added Linux Mint Sarah to package cloud script #1384 (@andyneff)
+* travis-ci: require successful tests against upcoming Git core release #1372 (@larsxschneider)
+* travis-ci: add a build job to test against upcoming versions of Git #1361 (@larsxschneider)
+* Create Makefiles for building with gccgo #1222 (@zeldin)
+* README: add @ttaylorr to core team #1332 (@ttaylorr)
+* Enforced a minimum gem version of 1.0.4 for packagecloud-ruby #1292 (@javabrett)
+* I think this should be "Once installed" and not "One installed", but … #1305 (@GabLeRoux)
+* script/test: propagate extra args to go test #1324 (@omonnier)
+* Add `lfs.basictransfersonly` option to disable non-basic transfer adapters #1299 (@sinbad)
+* Debian build vendor test excludes #1291 (@javabrett)
+* gitignore: ignore lfstest-\* files #1271 (@ttaylorr)
+* Disable gojsonschema test, causes failures when firewalls block it #1274 (@sinbad)
+* test: use noop credential helper for auth tests #1267 (@ttaylorr)
+* get git tests passing when run outside of repository #1229 (@technoweenie)
+* Package refactor no.1 #1226 (@sinbad)
+* vendor: vendor dependencies in vendor/ using Glide #1243 (@ttaylorr)
+
+## 1.2.1 (2 June 2016)
+
+### Features
+
+* Add missing config details to `env` command #1217 (@sinbad)
+* Allow smudge filter to return 0 on download failure #1213 (@sinbad)
+* Add `git lfs update --manual` option & promote it on hook install fail #1182 (@sinbad)
+* Pass `git lfs clone` flags through to `git clone` correctly, respect some options #1160 (@sinbad)
+
+### Bugs
+
+* Clean trailing `/` from include/exclude paths #1278 (@ttaylorr)
+* Fix problems with user prompts in `git lfs clone` #1185 (@sinbad)
+* Fix failure to return non-zero exit code when lfs install/update fails to install hooks #1178 (@sinbad)
+* Fix missing man page #1149 (@javabrett)
+* fix concurrent map read and map write #1179 (@technoweenie)
+
+### Misc
+
+* Allow additional fields on request & response schema #1276 (@sinbad)
+* Fix installer error on win32. #1198 (@teo-tsirpanis)
+* Applied same -ldflags -X name value -> name=value fix #1193 (@javabrett)
+* add instructions to install from MacPorts #1186 (@skymoo)
+* Add xenial repo #1170 (@graingert)
+
+## 1.2.0 (14 April 2016)
+
+### Features
+
+* netrc support #715 (@rubyist)
+* `git lfs clone` command #988 (@sinbad)
+* Support self-signed certs #1067 (@sinbad)
+* Support sslverify option for specific hosts #1081 (@sinbad)
+* Stop transferring duplicate objects on major push or fetch operations on multiple refs. #1128 (@technoweenie)
+* Touch existing git tracked files when tracked in LFS so they are flagged as modified #1104 (@sinbad)
+* Support for git reference clones #1007 (@jlehtnie)
+
+### Bugs
+
+* Fix clean/smudge filter string for files starting with - #1083 (@epriestley)
+* Fix silent failure to push LFS objects when ref matches a filename in the working copy #1096 (@epriestley)
+* Fix problems with using LFS in symlinked folders #818 (@sinbad)
+* Fix git lfs push silently misbehaving on ambiguous refs; fail like git push instead #1118 (@sinbad)
+* Whitelist `lfs.*.access` config in local ~/.lfsconfig #1122 (@rjbell4)
+* Only write the encoded pointer information to Stdout #1105 (@sschuberth)
+* Use hardcoded auth from remote or lfs config when accessing the storage api #1136 (@technoweenie, @jonmagic)
+* SSH should be called more strictly with command as one argument #1134 (@sinbad)
+
+## 1.1.2 (1 March, 2016)
+
+* Fix Base64 issues with `?` #989 (@technoweenie)
+* Fix zombie git proc issue #1012 (@rlaakkol)
+* Fix problems with files containing unicode characters #1016 (@technoweenie)
+* Fix panic in `git cat-file` parser #1006 (@technoweenie)
+* Display error messages in non-fatal errors #1028 #1039 #1042 (@technoweenie)
+* Fix concurrent map access in progress meter (@technoweenie)
+
+## 1.1.1 (4 February, 2016)
+
+### Features
+
+* Add copy-on-write support for Linux BTRFS filesystem #952 (@bozaro)
+* convert `git://` remotes to LFS servers automatically #964 (@technoweenie)
+* Fix `git lfs track` handling of absolute paths. #975  (@technoweenie)
+* Allow tunable http client timeouts #977 (@technoweenie)
+
+### Bugs
+
+* Suppress git config warnings for non-LFS keys #861 (@technoweenie)
+* Fix fallthrough when `git-lfs-authenticate` returns an error #909 (@sinbad)
+* Fix progress bar issue #883 (@pokehanai)
+* Support `remote.name.pushurl` config #949 (@sinbad)
+* Fix handling of `GIT_DIR` and `GIT_WORK_TREE` #963, #971 (@technoweenie)
+* Fix handling of zero length files #966 (@nathanhi)
+* Guard against invalid remotes passed to `push` and `pre-push` #974 (@technoweenie)
+* Fix race condition in `git lfs pull` #972 (@technoweenie)
+
+### Extra
+
+* Add server API test tool #868 (@sinbad)
+* Redo windows installer with innosetup #875 (@strich)
+* Pre-built packages are built with Go v1.5.3
+
+## 1.1.0 (18 November, 2015)
+
+* NTLM auth support #820 (@WillHipschman, @technoweenie)
+* Add `prune` command #742 (@sinbad)
+* Use .lfsconfig instead of .gitconfig #837 (@technoweenie)
+* Rename "init" command #838 (@technoweenie)
+* Raise error if credentials are needed #842 (@technoweenie)
+* Support git repos in symlinked directories #818 (@sinbad, @difro, @jiangxin)
+* Fix "git lfs env" to show correct SSH remote info #828 (@jiangxin)
+
+## 1.0.2 (28 October, 2015)
+
+* Fix issue with 'git lfs smudge' and the batch API. #795 (@technoweenie)
+* Fix race condition in the git scanning code. #801 (@technoweenie)
+
+## 1.0.1 (23 October, 2015)
+
+* Downcase git config keys (prevents Auth loop) #690 (@WillHipschman)
+* Show more info for unexpected http responses #710 (@rubyist)
+* Use separate stdout/stderr buffers for `git-lfs-authenticate` #718 (@bozaro)
+* Use LoggedError instead of Panic if update-index fails in checkout #735 (@sinbad)
+* `smudge` command exits with non-zero if the download fails #732 (@rubyist)
+* Use `git rev-parse` to find the git working dir #692 (@sinbad)
+* Improved default remote behaviour & validation for fetch/pull #713 (@sinbad)
+* Make fetch return error code when 1+ downloads failed #734 (@sinbad)
+* Improve lfs.InRepo() detection in `init`/`update` #756 (@technoweenie)
+* Teach smudge to use the batch api #711 (@rubyist)
+* Fix not setting global attribute when needed to b/c of local state #765 (@sinbad)
+* Fix clone fail when fetch is excluded globally #770 (@sinbad)
+* Fix for partial downloads problem #763 (@technoweenie)
+* Get integration tests passing on Windows #771 (@sinbad)
+
+### Security
+
+* Whitelist the valid keys read from .gitconfig #760 (@technoweenie)
+
+This prevents unsafe git configuration values from being used by Git LFS.
+
+## v1.0 (1 October, 2015)
+
+* Manual reference is integrated into the "help" options #665 @sinbad
+* Fix `ls-files` when run from an empty repository #668 @Aorjoa
+* Support listing duplicate files in `ls-files` #681 @Aorjoa @technoweenie
+* `update` and `init` commands can install the pre-push hook in bare repositories #671 @technoweenie
+* Add `GIT_LFS_SKIP_SMUDGE` and `init --skip-smudge` #679 @technoweenie
+
 ## v0.6.0 (10 September, 2015)
 
 This is the first release that uses the new Batch API by default, while still

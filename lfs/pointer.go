@@ -3,7 +3,6 @@ package lfs
 import (
 	"bufio"
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +10,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/github/git-lfs/errors"
+	"github.com/github/git-lfs/progress"
+	"github.com/github/git-lfs/transfer"
 )
 
 var (
@@ -57,8 +60,8 @@ func NewPointerExtension(name string, priority int, oid string) *PointerExtensio
 	return &PointerExtension{name, priority, oid, oidType}
 }
 
-func (p *Pointer) Smudge(writer io.Writer, workingfile string, download bool, cb CopyCallback) error {
-	return PointerSmudge(writer, p, workingfile, download, cb)
+func (p *Pointer) Smudge(writer io.Writer, workingfile string, download bool, manifest *transfer.Manifest, cb progress.CopyCallback) error {
+	return PointerSmudge(writer, p, workingfile, download, manifest, cb)
 }
 
 func (p *Pointer) Encode(writer io.Writer) (int, error) {
@@ -66,6 +69,10 @@ func (p *Pointer) Encode(writer io.Writer) (int, error) {
 }
 
 func (p *Pointer) Encoded() string {
+	if p.Size == 0 {
+		return ""
+	}
+
 	var buffer bytes.Buffer
 	buffer.WriteString(fmt.Sprintf("version %s\n", latest))
 	for _, ext := range p.Extensions {
@@ -87,7 +94,7 @@ func DecodePointerFromFile(file string) (*Pointer, error) {
 		return nil, err
 	}
 	if stat.Size() > blobSizeCutoff {
-		return nil, newNotAPointerError(nil)
+		return nil, errors.NewNotAPointerError(errors.New("file size exceeds lfs pointer size cutoff"))
 	}
 	f, err := os.OpenFile(file, os.O_RDONLY, 0644)
 	if err != nil {
@@ -102,7 +109,7 @@ func DecodePointer(reader io.Reader) (*Pointer, error) {
 }
 
 func DecodeFrom(reader io.Reader) ([]byte, *Pointer, error) {
-	buf := make([]byte, 512)
+	buf := make([]byte, blobSizeCutoff)
 	written, err := reader.Read(buf)
 	output := buf[0:written]
 
@@ -116,7 +123,7 @@ func DecodeFrom(reader io.Reader) ([]byte, *Pointer, error) {
 
 func verifyVersion(version string) error {
 	if len(version) == 0 {
-		return errors.New("Missing version")
+		return errors.NewNotAPointerError(errors.New("Missing version"))
 	}
 
 	for _, v := range v1Aliases {
@@ -131,6 +138,9 @@ func verifyVersion(version string) error {
 func decodeKV(data []byte) (*Pointer, error) {
 	kvps, exts, err := decodeKVData(data)
 	if err != nil {
+		if errors.IsBadPointerKeyError(err) {
+			return nil, errors.StandardizeBadPointerError(err)
+		}
 		return nil, err
 	}
 
@@ -223,7 +233,7 @@ func decodeKVData(data []byte) (kvps map[string]string, exts map[string]string, 
 	kvps = make(map[string]string)
 
 	if !matcherRE.Match(data) {
-		err = newNotAPointerError(err)
+		err = errors.NewNotAPointerError(errors.New("invalid header"))
 		return
 	}
 
@@ -252,7 +262,7 @@ func decodeKVData(data []byte) (kvps map[string]string, exts map[string]string, 
 
 		if expected := pointerKeys[line]; key != expected {
 			if !extRE.Match([]byte(key)) {
-				err = fmt.Errorf("Expected key %s, got %s", expected, key)
+				err = errors.NewBadPointerKeyError(expected, key)
 				return
 			}
 			if exts == nil {

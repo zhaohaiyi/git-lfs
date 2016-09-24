@@ -4,6 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/github/git-lfs/api"
+	"github.com/github/git-lfs/config"
+	"github.com/github/git-lfs/errors"
+	"github.com/github/git-lfs/transfer"
 )
 
 // Uploadable describes a file that can be uploaded.
@@ -12,45 +17,10 @@ type Uploadable struct {
 	OidPath  string
 	Filename string
 	size     int64
-	object   *objectResource
+	object   *api.ObjectResource
 }
 
-// NewUploadable builds the Uploadable from the given information.
-// "filename" can be empty if a raw object is pushed (see "object-id" flag in push command)/
-func NewUploadable(oid, filename string) (*Uploadable, error) {
-	localMediaPath, err := LocalMediaPath(oid)
-	if err != nil {
-		return nil, Errorf(err, "Error uploading file %s (%s)", filename, oid)
-	}
-
-	if len(filename) > 0 {
-		if err := ensureFile(filename, localMediaPath); err != nil {
-			return nil, Errorf(err, "Error uploading file %s (%s)", filename, oid)
-		}
-	}
-
-	fi, err := os.Stat(localMediaPath)
-	if err != nil {
-		return nil, Errorf(err, "Error uploading file %s (%s)", filename, oid)
-	}
-
-	return &Uploadable{oid: oid, OidPath: localMediaPath, Filename: filename, size: fi.Size()}, nil
-}
-
-func (u *Uploadable) Check() (*objectResource, error) {
-	return UploadCheck(u.OidPath)
-}
-
-func (u *Uploadable) Transfer(cb CopyCallback) error {
-	wcb := func(total, read int64, current int) error {
-		cb(total, read, current)
-		return nil
-	}
-
-	return UploadObject(u.object, wcb)
-}
-
-func (u *Uploadable) Object() *objectResource {
+func (u *Uploadable) Object() *api.ObjectResource {
 	return u.object
 }
 
@@ -66,15 +36,44 @@ func (u *Uploadable) Name() string {
 	return u.Filename
 }
 
-func (u *Uploadable) SetObject(o *objectResource) {
+func (u *Uploadable) SetObject(o *api.ObjectResource) {
 	u.object = o
+}
+
+func (u *Uploadable) Path() string {
+	return u.OidPath
+}
+
+// TODO LEGACY API: remove when legacy API removed
+func (u *Uploadable) LegacyCheck() (*api.ObjectResource, error) {
+	return api.UploadCheck(config.Config, u.Oid(), u.Size())
+}
+
+// NewUploadable builds the Uploadable from the given information.
+// "filename" can be empty if a raw object is pushed (see "object-id" flag in push command)/
+func NewUploadable(oid, filename string) (*Uploadable, error) {
+	localMediaPath, err := LocalMediaPath(oid)
+	if err != nil {
+		return nil, errors.Wrapf(err, "Error uploading file %s (%s)", filename, oid)
+	}
+
+	if len(filename) > 0 {
+		if err := ensureFile(filename, localMediaPath); err != nil {
+			return nil, err
+		}
+	}
+
+	fi, err := os.Stat(localMediaPath)
+	if err != nil {
+		return nil, errors.Wrapf(err, "Error uploading file %s (%s)", filename, oid)
+	}
+
+	return &Uploadable{oid: oid, OidPath: localMediaPath, Filename: filename, size: fi.Size()}, nil
 }
 
 // NewUploadQueue builds an UploadQueue, allowing `workers` concurrent uploads.
 func NewUploadQueue(files int, size int64, dryRun bool) *TransferQueue {
-	q := newTransferQueue(files, size, dryRun)
-	q.transferKind = "upload"
-	return q
+	return newTransferQueue(files, size, dryRun, transfer.Upload)
 }
 
 // ensureFile makes sure that the cleanPath exists before pushing it.  If it
@@ -85,7 +84,7 @@ func ensureFile(smudgePath, cleanPath string) error {
 	}
 
 	expectedOid := filepath.Base(cleanPath)
-	localPath := filepath.Join(LocalWorkingDir, smudgePath)
+	localPath := filepath.Join(config.LocalWorkingDir, smudgePath)
 	file, err := os.Open(localPath)
 	if err != nil {
 		return err
@@ -108,7 +107,7 @@ func ensureFile(smudgePath, cleanPath string) error {
 	}
 
 	if expectedOid != cleaned.Oid {
-		return fmt.Errorf("Expected %s to have an OID of %s, got %s", smudgePath, expectedOid, cleaned.Oid)
+		return fmt.Errorf("Trying to push %q with OID %s.\nNot found in %s.", smudgePath, expectedOid, filepath.Dir(cleanPath))
 	}
 
 	return nil

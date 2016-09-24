@@ -3,6 +3,8 @@
 . "test/testlib.sh"
 
 ensure_git_version_isnt $VERSION_LOWER "2.5.0"
+envInitConfig='git config filter.lfs.smudge = "git-lfs smudge -- %f"
+git config filter.lfs.clean = "git-lfs clean -- %f"'
 
 begin_test "git worktree"
 (
@@ -18,17 +20,33 @@ begin_test "git worktree"
     git commit -m "Initial commit"
 
     expected=$(printf "%s\n%s\n
-LocalWorkingDir=$TRASHDIR/$reponame
-LocalGitDir=$TRASHDIR/$reponame/.git
-LocalGitStorageDir=$TRASHDIR/$reponame/.git
-LocalMediaDir=$TRASHDIR/$reponame/.git/lfs/objects
-TempDir=$TRASHDIR/$reponame/.git/lfs/tmp
+LocalWorkingDir=$(native_path_escaped "$TRASHDIR/$reponame")
+LocalGitDir=$(native_path_escaped "$TRASHDIR/$reponame/.git")
+LocalGitStorageDir=$(native_path_escaped "$TRASHDIR/$reponame/.git")
+LocalMediaDir=$(native_path_escaped "$TRASHDIR/$reponame/.git/lfs/objects")
+LocalReferenceDir=
+TempDir=$(native_path_escaped "$TRASHDIR/$reponame/.git/lfs/tmp")
 ConcurrentTransfers=3
+TusTransfers=false
+BasicTransfersOnly=false
 BatchTransfer=true
-$(env | grep "^GIT")
-" "$(git lfs version)" "$(git version)")
+SkipDownloadErrors=false
+FetchRecentAlways=false
+FetchRecentRefsDays=7
+FetchRecentCommitsDays=0
+FetchRecentRefsIncludeRemotes=true
+PruneOffsetDays=3
+PruneVerifyRemoteAlways=false
+PruneRemoteName=origin
+AccessDownload=none
+AccessUpload=none
+DownloadTransfers=basic
+UploadTransfers=basic
+$(escape_path "$(env | grep "^GIT")")
+%s
+" "$(git lfs version)" "$(git version)" "$envInitConfig")
     actual=$(git lfs env)
-    [ "$expected" = "$actual" ]
+    contains_same_elements "$expected" "$actual"
 
     worktreename="worktree-2"
     git worktree add "$TRASHDIR/$worktreename"
@@ -38,16 +56,32 @@ $(env | grep "^GIT")
     # is only for index, temp etc
     # storage of git objects and lfs objects is in the original .git
     expected=$(printf "%s\n%s\n
-LocalWorkingDir=$TRASHDIR/$worktreename
-LocalGitDir=$TRASHDIR/$reponame/.git/worktrees/$worktreename
-LocalGitStorageDir=$TRASHDIR/$reponame/.git
-LocalMediaDir=$TRASHDIR/$reponame/.git/lfs/objects
-TempDir=$TRASHDIR/$reponame/.git/worktrees/$worktreename/lfs/tmp
+LocalWorkingDir=$(native_path_escaped "$TRASHDIR/$worktreename")
+LocalGitDir=$(native_path_escaped "$TRASHDIR/$reponame/.git/worktrees/$worktreename")
+LocalGitStorageDir=$(native_path_escaped "$TRASHDIR/$reponame/.git")
+LocalMediaDir=$(native_path_escaped "$TRASHDIR/$reponame/.git/lfs/objects")
+LocalReferenceDir=
+TempDir=$(native_path_escaped "$TRASHDIR/$reponame/.git/worktrees/$worktreename/lfs/tmp")
 ConcurrentTransfers=3
+TusTransfers=false
+BasicTransfersOnly=false
 BatchTransfer=true
-$(env | grep "^GIT")
-" "$(git lfs version)" "$(git version)")
+SkipDownloadErrors=false
+FetchRecentAlways=false
+FetchRecentRefsDays=7
+FetchRecentCommitsDays=0
+FetchRecentRefsIncludeRemotes=true
+PruneOffsetDays=3
+PruneVerifyRemoteAlways=false
+PruneRemoteName=origin
+AccessDownload=none
+AccessUpload=none
+DownloadTransfers=basic
+UploadTransfers=basic
+$(escape_path "$(env | grep "^GIT")")
+%s
+" "$(git lfs version)" "$(git version)" "$envInitConfig")
     actual=$(git lfs env)
-    [ "$expected" = "$actual" ]
+    contains_same_elements "$expected" "$actual"
 )
 end_test

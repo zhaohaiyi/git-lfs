@@ -6,22 +6,21 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/github/git-lfs/errors"
 	"github.com/github/git-lfs/lfs"
-	"github.com/github/git-lfs/vendor/_nuts/github.com/spf13/cobra"
+	"github.com/spf13/cobra"
 )
 
 var (
 	smudgeInfo = false
-	smudgeCmd  = &cobra.Command{
-		Use: "smudge",
-		Run: smudgeCommand,
-	}
+	smudgeSkip = false
 )
 
 func smudgeCommand(cmd *cobra.Command, args []string) {
 	requireStdin("This command should be run by the Git 'smudge' filter")
 	lfs.InstallHooks(false)
 
+	// keeps the initial buffer from lfs.DecodePointer
 	b := &bytes.Buffer{}
 	r := io.TeeReader(os.Stdin, b)
 
@@ -34,6 +33,8 @@ func smudgeCommand(cmd *cobra.Command, args []string) {
 		}
 		return
 	}
+
+	lfs.LinkOrCopyFromReference(ptr.Oid, ptr.Size)
 
 	if smudgeInfo {
 		localPath, err := lfs.LocalMediaPath(ptr.Oid)
@@ -56,16 +57,26 @@ func smudgeCommand(cmd *cobra.Command, args []string) {
 		Error(err.Error())
 	}
 
-	cfg := lfs.Config
 	download := lfs.FilenamePassesIncludeExcludeFilter(filename, cfg.FetchIncludePaths(), cfg.FetchExcludePaths())
-	err = ptr.Smudge(os.Stdout, filename, download, cb)
+
+	if smudgeSkip || cfg.Os.Bool("GIT_LFS_SKIP_SMUDGE", false) {
+		download = false
+	}
+
+	err = ptr.Smudge(os.Stdout, filename, download, TransferManifest(), cb)
 	if file != nil {
 		file.Close()
 	}
 
 	if err != nil {
 		ptr.Encode(os.Stdout)
-		LoggedError(err, "Error accessing media: %s (%s)", filename, ptr.Oid)
+		// Download declined error is ok to skip if we weren't requesting download
+		if !(errors.IsDownloadDeclinedError(err) && !download) {
+			LoggedError(err, "Error downloading object: %s (%s)", filename, ptr.Oid)
+			if !cfg.SkipDownloadErrors() {
+				os.Exit(2)
+			}
+		}
 	}
 }
 
@@ -74,14 +85,16 @@ func smudgeFilename(args []string, err error) string {
 		return args[0]
 	}
 
-	if lfs.IsSmudgeError(err) {
-		return filepath.Base(lfs.ErrorGetContext(err, "FileName").(string))
+	if errors.IsSmudgeError(err) {
+		return filepath.Base(errors.GetContext(err, "FileName").(string))
 	}
 
 	return "<unknown file>"
 }
 
 func init() {
-	smudgeCmd.Flags().BoolVarP(&smudgeInfo, "info", "i", false, "Display the local path and size of the smudged file.")
-	RootCmd.AddCommand(smudgeCmd)
+	RegisterCommand("smudge", smudgeCommand, func(cmd *cobra.Command) {
+		cmd.Flags().BoolVarP(&smudgeInfo, "info", "i", false, "")
+		cmd.Flags().BoolVarP(&smudgeSkip, "skip", "s", false, "")
+	})
 }

@@ -2,14 +2,9 @@ package lfs
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/github/git-lfs/git"
-)
-
-var (
-	valueRegexp = regexp.MustCompile("\\Agit[\\-\\s]media")
 )
 
 // Attribute wraps the structure and some operations of Git's conception of an
@@ -27,6 +22,15 @@ type Attribute struct {
 	// The Properties of an Attribute refer to all of the keys and values
 	// that define that Attribute.
 	Properties map[string]string
+	// Previous values of these attributes that can be automatically upgraded
+	Upgradeables map[string][]string
+}
+
+// InstallOptions serves as an argument to Install().
+type InstallOptions struct {
+	Force  bool
+	Local  bool
+	System bool
 }
 
 // Install instructs Git to set all keys and values relative to the root
@@ -35,10 +39,15 @@ type Attribute struct {
 // `force` argument is passed as true. If an attribute is already set to a
 // different value than what is given, and force is false, an error will be
 // returned immediately, and the rest of the attributes will not be set.
-func (a *Attribute) Install(force bool) error {
+func (a *Attribute) Install(opt InstallOptions) error {
 	for k, v := range a.Properties {
+		var upgradeables []string
+		if a.Upgradeables != nil {
+			// use pre-normalised key since caller will have set up the same
+			upgradeables = a.Upgradeables[k]
+		}
 		key := a.normalizeKey(k)
-		if err := a.set(key, v, force); err != nil {
+		if err := a.set(key, v, upgradeables, opt); err != nil {
 			return err
 		}
 	}
@@ -56,15 +65,34 @@ func (a *Attribute) normalizeKey(relative string) string {
 // matching key already exists and the value is not equal to the desired value,
 // an error will be thrown if force is set to false. If force is true, the value
 // will be overridden.
-func (a *Attribute) set(key, value string, force bool) error {
-	currentValue := git.Config.Find(key)
-	if force || shouldReset(currentValue) {
-		git.Config.UnsetGlobal(key)
-		git.Config.SetGlobal(key, value)
+func (a *Attribute) set(key, value string, upgradeables []string, opt InstallOptions) error {
+	var currentValue string
+	if opt.Local {
+		currentValue = git.Config.FindLocal(key)
+	} else if opt.System {
+		currentValue = git.Config.FindSystem(key)
+	} else {
+		currentValue = git.Config.FindGlobal(key)
+	}
 
-		return nil
+	if opt.Force || shouldReset(currentValue, upgradeables) {
+		var err error
+		if opt.Local {
+			// ignore error for unset, git returns non-zero if missing
+			git.Config.UnsetLocalKey("", key)
+			_, err = git.Config.SetLocal("", key, value)
+		} else if opt.System {
+			// ignore error for unset, git returns non-zero if missing
+			git.Config.UnsetSystem(key)
+			_, err = git.Config.SetSystem(key, value)
+		} else {
+			// ignore error for unset, git returns non-zero if missing
+			git.Config.UnsetGlobal(key)
+			_, err = git.Config.SetGlobal(key, value)
+		}
+		return err
 	} else if currentValue != value {
-		return fmt.Errorf("The %s attribute should be \"%s\" but is \"%s\"",
+		return fmt.Errorf("The %s attribute should be %q but is %q",
 			key, value, currentValue)
 	}
 
@@ -73,16 +101,24 @@ func (a *Attribute) set(key, value string, force bool) error {
 
 // Uninstall removes all properties in the path of this property.
 func (a *Attribute) Uninstall() {
+	// uninstall from both system and global
+	git.Config.UnsetSystemSection(a.Section)
 	git.Config.UnsetGlobalSection(a.Section)
 }
 
 // shouldReset determines whether or not a value is resettable given its current
 // value on the system. If the value is empty (length = 0), then it will pass.
-// Otherwise, it will pass if the below regex matches.
-func shouldReset(value string) bool {
+// It will also pass if it matches any upgradeable value
+func shouldReset(value string, upgradeables []string) bool {
 	if len(value) == 0 {
 		return true
 	}
 
-	return valueRegexp.MatchString(value)
+	for _, u := range upgradeables {
+		if value == u {
+			return true
+		}
+	}
+
+	return false
 }

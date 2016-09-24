@@ -1,5 +1,10 @@
 package lfs
 
+import (
+	"bytes"
+	"fmt"
+)
+
 var (
 	// prePushHook invokes `git lfs push` at the pre-push phase.
 	prePushHook = &Hook{
@@ -21,12 +26,41 @@ var (
 	filters = &Attribute{
 		Section: "filter.lfs",
 		Properties: map[string]string{
-			"clean":    "git-lfs clean %f",
-			"smudge":   "git-lfs smudge %f",
+			"clean":    "git-lfs clean -- %f",
+			"smudge":   "git-lfs smudge -- %f",
 			"required": "true",
+		},
+		Upgradeables: map[string][]string{
+			"clean":  []string{"git-lfs clean %f"},
+			"smudge": []string{"git-lfs smudge %f"},
+		},
+	}
+
+	passFilters = &Attribute{
+		Section: "filter.lfs",
+		Properties: map[string]string{
+			"clean":    "git-lfs clean -- %f",
+			"smudge":   "git-lfs smudge --skip -- %f",
+			"required": "true",
+		},
+		Upgradeables: map[string][]string{
+			"clean":  []string{"git-lfs clean %f"},
+			"smudge": []string{"git-lfs smudge --skip %f"},
 		},
 	}
 )
+
+// Get user-readable manual install steps for hooks
+func GetHookInstallSteps() string {
+
+	var buf bytes.Buffer
+	for _, h := range hooks {
+		buf.WriteString(fmt.Sprintf("Add the following to .git/hooks/%s :\n\n", h.Type))
+		buf.WriteString(h.Contents)
+		buf.WriteString("\n")
+	}
+	return buf.String()
+}
 
 // InstallHooks installs all hooks in the `hooks` var.
 func InstallHooks(force bool) error {
@@ -39,7 +73,7 @@ func InstallHooks(force bool) error {
 	return nil
 }
 
-// UninstallHooks resmoves all hooks in range of the `hooks` var.
+// UninstallHooks removes all hooks in range of the `hooks` var.
 func UninstallHooks() error {
 	for _, h := range hooks {
 		if err := h.Uninstall(); err != nil {
@@ -57,8 +91,11 @@ func UninstallHooks() error {
 //
 // An error will be returned if a filter is unable to be set, or if the required
 // filters were not present.
-func InstallFilters(force bool) error {
-	return filters.Install(force)
+func InstallFilters(opt InstallOptions, passThrough bool) error {
+	if passThrough {
+		return passFilters.Install(opt)
+	}
+	return filters.Install(opt)
 }
 
 // UninstallFilters proxies into the Uninstall method on the Filters type to

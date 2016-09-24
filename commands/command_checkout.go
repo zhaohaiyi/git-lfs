@@ -1,22 +1,18 @@
 package commands
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"os/exec"
 	"sync"
 
+	"github.com/github/git-lfs/errors"
 	"github.com/github/git-lfs/git"
 	"github.com/github/git-lfs/lfs"
-	"github.com/github/git-lfs/vendor/_nuts/github.com/rubyist/tracerx"
-	"github.com/github/git-lfs/vendor/_nuts/github.com/spf13/cobra"
-)
-
-var (
-	checkoutCmd = &cobra.Command{
-		Use: "checkout",
-		Run: checkoutCommand,
-	}
+	"github.com/github/git-lfs/progress"
+	"github.com/rubyist/tracerx"
+	"github.com/spf13/cobra"
 )
 
 func checkoutCommand(cmd *cobra.Command, args []string) {
@@ -37,10 +33,6 @@ func checkoutCommand(cmd *cobra.Command, args []string) {
 	}
 	close(inchan)
 	checkoutWithIncludeExclude(rootedpaths, nil)
-}
-
-func init() {
-	RootCmd.AddCommand(checkoutCmd)
 }
 
 // Checkout from items reported from the fetch process (in parallel)
@@ -116,7 +108,9 @@ func checkoutWithIncludeExclude(include []string, exclude []string) {
 	for _, pointer := range pointers {
 		totalBytes += pointer.Size
 	}
-	progress := lfs.NewProgressMeter(len(pointers), totalBytes, false)
+
+	logPath, _ := cfg.Os.Get("GIT_LFS_PROGRESS")
+	progress := progress.NewProgressMeter(len(pointers), totalBytes, false, logPath)
 	progress.Start()
 	totalBytes = 0
 	for _, pointer := range pointers {
@@ -164,6 +158,7 @@ func checkoutWithChan(in <-chan *lfs.WrappedPointer) {
 	// and which has unexpected side effects (e.g. downloading filtered-out files)
 	var cmd *exec.Cmd
 	var updateIdxStdin io.WriteCloser
+	var updateIdxOut bytes.Buffer
 
 	// From this point on, git update-index is running. Code in this loop MUST
 	// NOT Panic() or otherwise cause the process to exit. If the process exits
@@ -171,12 +166,15 @@ func checkoutWithChan(in <-chan *lfs.WrappedPointer) {
 	// locked state.
 
 	// As files come in, write them to the wd and update the index
+
+	manifest := TransferManifest()
+
 	for pointer := range in {
 
 		// Check the content - either missing or still this pointer (not exist is ok)
 		filepointer, err := lfs.DecodePointerFromFile(pointer.Name)
 		if err != nil && !os.IsNotExist(err) {
-			if lfs.IsNotAPointerError(err) {
+			if errors.IsNotAPointerError(err) {
 				// File has non-pointer content, leave it alone
 				continue
 			}
@@ -193,9 +191,9 @@ func checkoutWithChan(in <-chan *lfs.WrappedPointer) {
 		repopathchan <- pointer.Name
 		cwdfilepath := <-cwdpathchan
 
-		err = lfs.PointerSmudgeToFile(cwdfilepath, pointer.Pointer, false, nil)
+		err = lfs.PointerSmudgeToFile(cwdfilepath, pointer.Pointer, false, manifest, nil)
 		if err != nil {
-			if lfs.IsDownloadDeclinedError(err) {
+			if errors.IsDownloadDeclinedError(err) {
 				// acceptable error, data not local (fetch not run or include/exclude)
 				LoggedError(err, "Skipped checkout for %v, content not local. Use fetch to download.", pointer.Name)
 			} else {
@@ -207,6 +205,8 @@ func checkoutWithChan(in <-chan *lfs.WrappedPointer) {
 		if cmd == nil {
 			// Fire up the update-index command
 			cmd = exec.Command("git", "update-index", "-q", "--refresh", "--stdin")
+			cmd.Stdout = &updateIdxOut
+			cmd.Stderr = &updateIdxOut
 			updateIdxStdin, err = cmd.StdinPipe()
 			if err != nil {
 				Panic(err, "Could not update the index")
@@ -225,7 +225,11 @@ func checkoutWithChan(in <-chan *lfs.WrappedPointer) {
 	if cmd != nil && updateIdxStdin != nil {
 		updateIdxStdin.Close()
 		if err := cmd.Wait(); err != nil {
-			Panic(err, "Error updating the git index")
+			LoggedError(err, "Error updating the git index:\n%s", updateIdxOut.String())
 		}
 	}
+}
+
+func init() {
+	RegisterCommand("checkout", checkoutCommand, nil)
 }

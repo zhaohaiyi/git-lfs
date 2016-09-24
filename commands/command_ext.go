@@ -3,21 +3,8 @@ package commands
 import (
 	"fmt"
 
-	"github.com/github/git-lfs/lfs"
-	"github.com/github/git-lfs/vendor/_nuts/github.com/spf13/cobra"
-)
-
-var (
-	extCmd = &cobra.Command{
-		Use: "ext",
-		Run: extCommand,
-	}
-
-	extListCmd = &cobra.Command{
-		Use:   "list",
-		Short: "View details for specified extensions",
-		Run:   extListCommand,
-	}
+	"github.com/github/git-lfs/config"
+	"github.com/spf13/cobra"
 )
 
 func extCommand(cmd *cobra.Command, args []string) {
@@ -31,17 +18,14 @@ func extListCommand(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	config := lfs.Config
 	for _, key := range args {
-		ext := config.Extensions()[key]
+		ext := cfg.Extensions()[key]
 		printExt(ext)
 	}
 }
 
 func printAllExts() {
-	config := lfs.Config
-
-	extensions, err := lfs.SortExtensions(config.Extensions())
+	extensions, err := cfg.SortedExtensions()
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -51,7 +35,7 @@ func printAllExts() {
 	}
 }
 
-func printExt(ext lfs.Extension) {
+func printExt(ext config.Extension) {
 	Print("Extension: %s", ext.Name)
 	Print("    clean = %s", ext.Clean)
 	Print("    smudge = %s", ext.Smudge)
@@ -59,6 +43,7 @@ func printExt(ext lfs.Extension) {
 }
 
 func init() {
-	extCmd.AddCommand(extListCmd)
-	RootCmd.AddCommand(extCmd)
+	RegisterCommand("ext", extCommand, func(cmd *cobra.Command) {
+		cmd.AddCommand(NewCommand("list", extListCommand))
+	})
 }

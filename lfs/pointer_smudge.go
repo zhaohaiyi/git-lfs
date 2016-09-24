@@ -6,20 +6,26 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/github/git-lfs/vendor/_nuts/github.com/cheggaaa/pb"
-	"github.com/github/git-lfs/vendor/_nuts/github.com/rubyist/tracerx"
-	contentaddressable "github.com/github/git-lfs/vendor/_nuts/github.com/technoweenie/go-contentaddressable"
+	"github.com/cheggaaa/pb"
+	"github.com/github/git-lfs/tools"
+	"github.com/github/git-lfs/transfer"
+
+	"github.com/github/git-lfs/api"
+	"github.com/github/git-lfs/config"
+	"github.com/github/git-lfs/errors"
+	"github.com/github/git-lfs/progress"
+	"github.com/rubyist/tracerx"
 )
 
-func PointerSmudgeToFile(filename string, ptr *Pointer, download bool, cb CopyCallback) error {
+func PointerSmudgeToFile(filename string, ptr *Pointer, download bool, manifest *transfer.Manifest, cb progress.CopyCallback) error {
 	os.MkdirAll(filepath.Dir(filename), 0755)
 	file, err := os.Create(filename)
 	if err != nil {
 		return fmt.Errorf("Could not create working directory file: %v", err)
 	}
 	defer file.Close()
-	if err := PointerSmudge(file, ptr, filename, download, cb); err != nil {
-		if IsDownloadDeclinedError(err) {
+	if err := PointerSmudge(file, ptr, filename, download, manifest, cb); err != nil {
+		if errors.IsDownloadDeclinedError(err) {
 			// write placeholder data instead
 			file.Seek(0, os.SEEK_SET)
 			ptr.Encode(file)
@@ -31,11 +37,13 @@ func PointerSmudgeToFile(filename string, ptr *Pointer, download bool, cb CopyCa
 	return nil
 }
 
-func PointerSmudge(writer io.Writer, ptr *Pointer, workingfile string, download bool, cb CopyCallback) error {
+func PointerSmudge(writer io.Writer, ptr *Pointer, workingfile string, download bool, manifest *transfer.Manifest, cb progress.CopyCallback) error {
 	mediafile, err := LocalMediaPath(ptr.Oid)
 	if err != nil {
 		return err
 	}
+
+	LinkOrCopyFromReference(ptr.Oid, ptr.Size)
 
 	stat, statErr := os.Stat(mediafile)
 	if statErr == nil && stat != nil {
@@ -49,120 +57,62 @@ func PointerSmudge(writer io.Writer, ptr *Pointer, workingfile string, download 
 
 	if statErr != nil || stat == nil {
 		if download {
-			err = downloadFile(writer, ptr, workingfile, mediafile, cb)
+			err = downloadFile(writer, ptr, workingfile, mediafile, manifest, cb)
 		} else {
-			return newDownloadDeclinedError(nil)
+			return errors.NewDownloadDeclinedError(statErr, "smudge")
 		}
 	} else {
 		err = readLocalFile(writer, ptr, mediafile, workingfile, cb)
 	}
 
 	if err != nil {
-		return newSmudgeError(err, ptr.Oid, mediafile)
+		return errors.NewSmudgeError(err, ptr.Oid, mediafile)
 	}
 
 	return nil
 }
 
-// PointerSmudgeObject uses a Pointer and objectResource to download the object to the
-// media directory. It does not write the file to the working directory.
-func PointerSmudgeObject(ptr *Pointer, obj *objectResource, cb CopyCallback) error {
-	mediafile, err := LocalMediaPath(obj.Oid)
+func downloadFile(writer io.Writer, ptr *Pointer, workingfile, mediafile string, manifest *transfer.Manifest, cb progress.CopyCallback) error {
+	fmt.Fprintf(os.Stderr, "Downloading %s (%s)\n", workingfile, pb.FormatBytes(ptr.Size))
+
+	xfers := manifest.GetDownloadAdapterNames()
+	obj, adapterName, err := api.BatchOrLegacySingle(config.Config, &api.ObjectResource{Oid: ptr.Oid, Size: ptr.Size}, "download", xfers)
+	if err != nil {
+		return errors.Wrapf(err, "Error downloading %s: %s", filepath.Base(mediafile), err)
+	}
+
+	if ptr.Size == 0 {
+		ptr.Size = obj.Size
+	}
+
+	adapter := manifest.NewDownloadAdapter(adapterName)
+	var tcb transfer.TransferProgressCallback
+	if cb != nil {
+		tcb = func(name string, totalSize, readSoFar int64, readSinceLast int) error {
+			return cb(totalSize, readSoFar, readSinceLast)
+		}
+	}
+	// Single download
+	adapterResultChan := make(chan transfer.TransferResult, 1)
+	err = adapter.Begin(1, tcb, adapterResultChan)
 	if err != nil {
 		return err
 	}
+	adapter.Add(transfer.NewTransfer(filepath.Base(workingfile), obj, mediafile))
+	adapter.End()
+	res := <-adapterResultChan
 
-	stat, statErr := os.Stat(mediafile)
-	if statErr == nil && stat != nil {
-		fileSize := stat.Size()
-		if fileSize == 0 || fileSize != obj.Size {
-			tracerx.Printf("Removing %s, size %d is invalid", mediafile, fileSize)
-			os.RemoveAll(mediafile)
-			stat = nil
-		}
-	}
-
-	if statErr != nil || stat == nil {
-		err := downloadObject(ptr, obj, mediafile, cb)
-
-		if err != nil {
-			return newSmudgeError(err, obj.Oid, mediafile)
-		}
-	}
-
-	return nil
-}
-
-func downloadObject(ptr *Pointer, obj *objectResource, mediafile string, cb CopyCallback) error {
-	reader, size, err := DownloadObject(obj)
-	if reader != nil {
-		defer reader.Close()
-	}
-
-	// TODO this can be unified with the same code in downloadFile
-	if err != nil {
-		return Errorf(err, "Error downloading %s", mediafile)
-	}
-
-	if ptr.Size == 0 {
-		ptr.Size = size
-	}
-
-	mediaFile, err := contentaddressable.NewFile(mediafile)
-	if err != nil {
-		return Errorf(err, "Error opening media file buffer.")
-	}
-
-	_, err = CopyWithCallback(mediaFile, reader, ptr.Size, cb)
-	if err == nil {
-		err = mediaFile.Accept()
-	}
-	mediaFile.Close()
-
-	if err != nil {
-		return Errorf(err, "Error buffering media file.")
-	}
-
-	return nil
-}
-
-func downloadFile(writer io.Writer, ptr *Pointer, workingfile, mediafile string, cb CopyCallback) error {
-	fmt.Fprintf(os.Stderr, "Downloading %s (%s)\n", workingfile, pb.FormatBytes(ptr.Size))
-	reader, size, err := Download(filepath.Base(mediafile))
-	if reader != nil {
-		defer reader.Close()
-	}
-
-	if err != nil {
-		return Errorf(err, "Error downloading %s.", mediafile)
-	}
-
-	if ptr.Size == 0 {
-		ptr.Size = size
-	}
-
-	mediaFile, err := contentaddressable.NewFile(mediafile)
-	if err != nil {
-		return Errorf(err, "Error opening media file buffer.")
-	}
-
-	_, err = CopyWithCallback(mediaFile, reader, ptr.Size, cb)
-	if err == nil {
-		err = mediaFile.Accept()
-	}
-	mediaFile.Close()
-
-	if err != nil {
-		return Errorf(err, "Error buffering media file.")
+	if res.Error != nil {
+		return errors.Wrapf(err, "Error buffering media file: %s", res.Error)
 	}
 
 	return readLocalFile(writer, ptr, mediafile, workingfile, nil)
 }
 
-func readLocalFile(writer io.Writer, ptr *Pointer, mediafile string, workingfile string, cb CopyCallback) error {
+func readLocalFile(writer io.Writer, ptr *Pointer, mediafile string, workingfile string, cb progress.CopyCallback) error {
 	reader, err := os.Open(mediafile)
 	if err != nil {
-		return Errorf(err, "Error opening media file.")
+		return errors.Wrapf(err, "Error opening media file.")
 	}
 	defer reader.Close()
 
@@ -173,25 +123,25 @@ func readLocalFile(writer io.Writer, ptr *Pointer, mediafile string, workingfile
 	}
 
 	if len(ptr.Extensions) > 0 {
-		registeredExts := Config.Extensions()
-		extensions := make(map[string]Extension)
+		registeredExts := config.Config.Extensions()
+		extensions := make(map[string]config.Extension)
 		for _, ptrExt := range ptr.Extensions {
 			ext, ok := registeredExts[ptrExt.Name]
 			if !ok {
 				err := fmt.Errorf("Extension '%s' is not configured.", ptrExt.Name)
-				return Error(err)
+				return errors.Wrap(err, "smudge")
 			}
 			ext.Priority = ptrExt.Priority
 			extensions[ext.Name] = ext
 		}
-		exts, err := SortExtensions(extensions)
+		exts, err := config.SortExtensions(extensions)
 		if err != nil {
-			return Error(err)
+			return errors.Wrap(err, "smudge")
 		}
 
 		// pipe extensions in reverse order
-		var extsR []Extension
-		for i, _ := range exts {
+		var extsR []config.Extension
+		for i := range exts {
 			ext := exts[len(exts)-1-i]
 			extsR = append(extsR, ext)
 		}
@@ -200,7 +150,7 @@ func readLocalFile(writer io.Writer, ptr *Pointer, mediafile string, workingfile
 
 		response, err := pipeExtensions(request)
 		if err != nil {
-			return Error(err)
+			return errors.Wrap(err, "smudge")
 		}
 
 		actualExts := make(map[string]*pipeExtResult)
@@ -212,32 +162,32 @@ func readLocalFile(writer io.Writer, ptr *Pointer, mediafile string, workingfile
 		oid := response.results[0].oidIn
 		if ptr.Oid != oid {
 			err = fmt.Errorf("Actual oid %s during smudge does not match expected %s", oid, ptr.Oid)
-			return Error(err)
+			return errors.Wrap(err, "smudge")
 		}
 
 		for _, expected := range ptr.Extensions {
 			actual := actualExts[expected.Name]
 			if actual.name != expected.Name {
 				err = fmt.Errorf("Actual extension name '%s' does not match expected '%s'", actual.name, expected.Name)
-				return Error(err)
+				return errors.Wrap(err, "smudge")
 			}
 			if actual.oidOut != expected.Oid {
 				err = fmt.Errorf("Actual oid %s for extension '%s' does not match expected %s", actual.oidOut, expected.Name, expected.Oid)
-				return Error(err)
+				return errors.Wrap(err, "smudge")
 			}
 		}
 
 		// setup reader
 		reader, err = os.Open(response.file.Name())
 		if err != nil {
-			return Errorf(err, "Error opening smudged file.")
+			return errors.Wrapf(err, "Error opening smudged file: %s", err)
 		}
 		defer reader.Close()
 	}
 
-	_, err = CopyWithCallback(writer, reader, ptr.Size, cb)
+	_, err = tools.CopyWithCallback(writer, reader, ptr.Size, cb)
 	if err != nil {
-		return Errorf(err, "Error reading from media file.")
+		return errors.Wrapf(err, "Error reading from media file: %s", err)
 	}
 
 	return nil

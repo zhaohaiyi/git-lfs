@@ -5,14 +5,10 @@ import (
 
 	"github.com/github/git-lfs/git"
 	"github.com/github/git-lfs/lfs"
-	"github.com/github/git-lfs/vendor/_nuts/github.com/spf13/cobra"
+	"github.com/spf13/cobra"
 )
 
 var (
-	statusCmd = &cobra.Command{
-		Use: "status",
-		Run: statusCommand,
-	}
 	porcelain = false
 )
 
@@ -43,11 +39,7 @@ func statusCommand(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	branch, err := git.CurrentBranch()
-	if err != nil {
-		Panic(err, "Could not get current branch")
-	}
-	Print("On branch %s", branch)
+	Print("On branch %s", ref.Name)
 
 	remoteRef, err := git.CurrentRemoteRef()
 	if err == nil {
@@ -57,12 +49,7 @@ func statusCommand(cmd *cobra.Command, args []string) {
 			Panic(err, "Could not scan for Git LFS objects")
 		}
 
-		remote, err := git.CurrentRemote()
-		if err != nil {
-			Panic(err, "Could not get current remote branch")
-		}
-
-		Print("Git LFS objects to be pushed to %s:\n", remote)
+		Print("Git LFS objects to be pushed to %s:\n", remoteRef.Name)
 		for _, p := range pointers {
 			Print("\t%s (%s)", p.Name, humanizeBytes(p.Size))
 		}
@@ -110,6 +97,7 @@ func humanizeBytes(bytes int64) string {
 }
 
 func init() {
-	statusCmd.Flags().BoolVarP(&porcelain, "porcelain", "p", false, "Give the output in an easy-to-parse format for scripts.")
-	RootCmd.AddCommand(statusCmd)
+	RegisterCommand("status", statusCommand, func(cmd *cobra.Command) {
+		cmd.Flags().BoolVarP(&porcelain, "porcelain", "p", false, "Give the output in an easy-to-parse format for scripts.")
+	})
 }

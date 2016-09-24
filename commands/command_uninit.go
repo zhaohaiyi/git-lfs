@@ -1,45 +1,28 @@
 package commands
 
 import (
-	"github.com/github/git-lfs/lfs"
-	"github.com/github/git-lfs/vendor/_nuts/github.com/spf13/cobra"
+	"fmt"
+	"os"
+
+	"github.com/spf13/cobra"
 )
 
-var (
-	// uninitCmd removes any configuration and hooks set by Git LFS.
-	uninitCmd = &cobra.Command{
-		Use: "uninit",
-		Run: uninitCommand,
-	}
+// TODO: Remove for Git LFS v2.0 https://github.com/github/git-lfs/issues/839
 
-	// uninitHooksCmd removes any hooks created by Git LFS.
-	uninitHooksCmd = &cobra.Command{
-		Use: "hooks",
-		Run: uninitHooksCommand,
-	}
-)
-
+// uninitCmd removes any configuration and hooks set by Git LFS.
 func uninitCommand(cmd *cobra.Command, args []string) {
-	if err := lfs.UninstallFilters(); err != nil {
-		Error(err.Error())
-	}
-
-	Print("Global Git LFS configuration has been removed.")
-
-	if lfs.InRepo() {
-		uninitHooksCommand(cmd, args)
-	}
+	fmt.Fprintf(os.Stderr, "WARNING: 'git lfs uninit' is deprecated. Use 'git lfs uninstall' now.\n")
+	uninstallCommand(cmd, args)
 }
 
+// uninitHooksCmd removes any hooks created by Git LFS.
 func uninitHooksCommand(cmd *cobra.Command, args []string) {
-	if err := lfs.UninstallHooks(); err != nil {
-		Error(err.Error())
-	}
-
-	Print("Hooks for this repository have been removed.")
+	fmt.Fprintf(os.Stderr, "WARNING: 'git lfs uninit' is deprecated. Use 'git lfs uninstall' now.\n")
+	uninstallHooksCommand(cmd, args)
 }
 
 func init() {
-	uninitCmd.AddCommand(uninitHooksCmd)
-	RootCmd.AddCommand(uninitCmd)
+	RegisterCommand("uninit", uninitCommand, func(cmd *cobra.Command) {
+		cmd.AddCommand(NewCommand("hooks", uninitHooksCommand))
+	})
 }

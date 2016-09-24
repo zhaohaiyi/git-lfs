@@ -38,10 +38,48 @@ begin_test "track"
 
   out=$(git lfs track)
   echo "$out" | grep "Listing tracked paths"
-  echo "$out" | grep "*.mov (.git/info/attributes)"
+  echo "$out" | grep "*.mov ($(native_path_escaped ".git/info/attributes"))"
   echo "$out" | grep "*.jpg (.gitattributes)"
-  echo "$out" | grep "*.gif (a/.gitattributes)"
-  echo "$out" | grep "*.png (a/b/.gitattributes)"
+  echo "$out" | grep "*.gif ($(native_path_escaped "a/.gitattributes"))"
+  echo "$out" | grep "*.png ($(native_path_escaped "a/b/.gitattributes"))"
+)
+end_test
+
+begin_test "track --verbose"
+(
+  set -e
+
+  reponame="track_verbose_logs"
+  mkdir "$reponame"
+  cd "$reponame"
+  git init
+
+  touch foo.dat
+  git add foo.dat
+
+  git lfs track --verbose "foo.dat" 2>&1 > track.log
+  grep "touching foo.dat" track.log
+)
+end_test
+
+begin_test "track --dry-run"
+(
+  set -e
+
+  reponame="track_dry_run"
+  mkdir "$reponame"
+  cd "$reponame"
+  git init
+
+  touch foo.dat
+  git add foo.dat
+
+  git lfs track --dry-run "foo.dat" 2>&1 > track.log
+  grep "Tracking foo.dat" track.log
+  grep "Git LFS: touching foo.dat" track.log
+
+  git status --porcelain 2>&1 > status.log
+  grep "A  foo.dat" status.log
 )
 end_test
 
@@ -134,21 +172,6 @@ begin_test "track representation"
   cd track-representation
 
   git lfs track "*.jpg"
-  out=$(git lfs track "$PWD/*.jpg")
-
-  if [ "$out" != "$PWD/*.jpg already supported" ]; then
-    echo "Track didn't recognize duplicate path"
-    cat .gitattributes
-    exit 1
-  fi
-
-  out2=$(git lfs track "a/../*.jpg")
-
-  if [ "$out2" != "a/../*.jpg already supported" ]; then
-    echo "Track didn't recognize duplicate path"
-    cat .gitattributes
-    exit 1
-  fi
 
   mkdir a
   git lfs track "a/test.file"
@@ -174,17 +197,20 @@ end_test
 
 begin_test "track absolute"
 (
+  # MinGW bash intercepts '/images' and passes 'C:/Program Files/Git/images' as arg!
+  if [[ $(uname) == *"MINGW"* ]]; then
+    echo "Skipping track absolute on Windows"
+    exit 0
+  fi
+
   set -e
 
   git init track-absolute
   cd track-absolute
 
-  git lfs track "$PWD/*.jpg"
-  grep "^*.jpg" .gitattributes || {
-    echo ".gitattributes doesn't contain the expected relative path *.jpg:"
-    cat .gitattributes
-    exit 1
-  }
+  git lfs track "/images"
+  cat .gitattributes
+  grep "^/images" .gitattributes
 )
 end_test
 
@@ -215,3 +241,55 @@ begin_test "track in gitDir"
   exit 1
 )
 end_test
+
+begin_test "track in symlinked dir"
+(
+  set -e
+
+  git init track-symlinkdst
+  ln -s track-symlinkdst track-symlinksrc
+  cd track-symlinksrc
+
+  git lfs track "*.png"
+  grep "^*.png" .gitattributes || {
+    echo ".gitattributes doesn't contain the expected relative path *.png:"
+    cat .gitattributes
+    exit 1
+  }
+)
+end_test
+
+begin_test "track blocklisted files by name"
+(
+  set -e
+
+  repo="track_blocklisted_by_name"
+  mkdir "$repo"
+  cd "$repo"
+  git init
+
+  touch .gitattributes
+  git add .gitattributes
+
+  git lfs track .gitattributes 2>&1 > track.log
+  grep "Pattern .gitattributes matches forbidden file .gitattributes" track.log
+)
+end_test
+
+begin_test "track blocklisted files with glob"
+(
+  set -e
+
+  repo="track_blocklisted_glob"
+  mkdir "$repo"
+  cd "$repo"
+  git init
+
+  touch .gitattributes
+  git add .gitattributes
+
+  git lfs track ".git*" 2>&1 > track.log
+  grep "Pattern .git\* matches forbidden file" track.log
+)
+end_test
+

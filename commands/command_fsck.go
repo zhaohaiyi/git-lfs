@@ -7,18 +7,14 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/github/git-lfs/config"
 	"github.com/github/git-lfs/git"
 	"github.com/github/git-lfs/lfs"
-	"github.com/github/git-lfs/vendor/_nuts/github.com/spf13/cobra"
+	"github.com/spf13/cobra"
 )
 
 var (
 	fsckDryRun bool
-
-	fsckCmd = &cobra.Command{
-		Use: "fsck",
-		Run: fsckCommand,
-	}
 )
 
 func doFsck() (bool, error) {
@@ -55,7 +51,7 @@ func doFsck() (bool, error) {
 	ok := true
 
 	for oid, name := range pointerIndex {
-		path := filepath.Join(lfs.LocalMediaDir, oid[0:2], oid[2:4], oid)
+		path := lfs.LocalMediaPathReadOnly(oid)
 
 		Debug("Examining %v (%v)", name, path)
 
@@ -84,7 +80,7 @@ func doFsck() (bool, error) {
 				continue
 			}
 
-			badDir := filepath.Join(lfs.LocalGitStorageDir, "lfs", "bad")
+			badDir := filepath.Join(config.LocalGitStorageDir, "lfs", "bad")
 			if err := os.MkdirAll(badDir, 0755); err != nil {
 				return false, err
 			}
@@ -119,6 +115,7 @@ func fsckCommand(cmd *cobra.Command, args []string) {
 }
 
 func init() {
-	fsckCmd.Flags().BoolVarP(&fsckDryRun, "dry-run", "d", false, "List corrupt objects without deleting them.")
-	RootCmd.AddCommand(fsckCmd)
+	RegisterCommand("fsck", fsckCommand, func(cmd *cobra.Command) {
+		cmd.Flags().BoolVarP(&fsckDryRun, "dry-run", "d", false, "List corrupt objects without deleting them.")
+	})
 }

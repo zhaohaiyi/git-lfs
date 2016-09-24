@@ -1,41 +1,28 @@
 package commands
 
 import (
-	"github.com/github/git-lfs/lfs"
-	"github.com/github/git-lfs/vendor/_nuts/github.com/spf13/cobra"
+	"fmt"
+	"os"
+
+	"github.com/spf13/cobra"
 )
 
-var (
-	initCmd = &cobra.Command{
-		Use: "init",
-		Run: initCommand,
-	}
-
-	initHooksCmd = &cobra.Command{
-		Use: "hooks",
-		Run: initHooksCommand,
-	}
-
-	forceInit = false
-)
-
+// TODO: Remove for Git LFS v2.0 https://github.com/github/git-lfs/issues/839
 func initCommand(cmd *cobra.Command, args []string) {
-	if err := lfs.InstallFilters(forceInit); err != nil {
-		Error(err.Error())
-		Exit("Run `git lfs init --force` to reset git config.")
-	}
-
-	initHooksCommand(cmd, args)
-	Print("Git LFS initialized.")
+	fmt.Fprintf(os.Stderr, "WARNING: 'git lfs init' is deprecated. Use 'git lfs install' now.\n")
+	installCommand(cmd, args)
 }
 
 func initHooksCommand(cmd *cobra.Command, args []string) {
-	updateForce = forceInit
-	updateCommand(cmd, args)
+	fmt.Fprintf(os.Stderr, "WARNING: 'git lfs init' is deprecated. Use 'git lfs install' now.\n")
+	installHooksCommand(cmd, args)
 }
 
 func init() {
-	initCmd.Flags().BoolVarP(&forceInit, "force", "f", false, "Set the Git LFS global config, overwriting previous values.")
-	initCmd.AddCommand(initHooksCmd)
-	RootCmd.AddCommand(initCmd)
+	RegisterCommand("init", initCommand, func(cmd *cobra.Command) {
+		cmd.Flags().BoolVarP(&forceInstall, "force", "f", false, "Set the Git LFS global config, overwriting previous values.")
+		cmd.Flags().BoolVarP(&localInstall, "local", "l", false, "Set the Git LFS config for the local Git repository only.")
+		cmd.Flags().BoolVarP(&skipSmudgeInstall, "skip-smudge", "s", false, "Skip automatic downloading of objects on clone or pull.")
+		cmd.AddCommand(NewCommand("hooks", initHooksCommand))
+	})
 }

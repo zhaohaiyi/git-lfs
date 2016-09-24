@@ -1,46 +1,51 @@
 package commands
 
 import (
-	"github.com/github/git-lfs/git"
-	"github.com/github/git-lfs/lfs"
-	"github.com/github/git-lfs/vendor/_nuts/github.com/spf13/cobra"
-)
+	"fmt"
 
-var (
-	pullCmd = &cobra.Command{
-		Use: "pull",
-		Run: pullCommand,
-	}
-	pullIncludeArg string
-	pullExcludeArg string
+	"github.com/github/git-lfs/git"
+	"github.com/spf13/cobra"
 )
 
 func pullCommand(cmd *cobra.Command, args []string) {
+	requireGitVersion()
 	requireInRepo()
 
 	if len(args) > 0 {
 		// Remote is first arg
-		lfs.Config.CurrentRemote = args[0]
+		if err := git.ValidateRemote(args[0]); err != nil {
+			Panic(err, fmt.Sprintf("Invalid remote name '%v'", args[0]))
+		}
+		cfg.CurrentRemote = args[0]
 	} else {
-		trackedRemote, err := git.CurrentRemote()
-		if err == nil {
-			lfs.Config.CurrentRemote = trackedRemote
-		} // otherwise leave as default (origin)
+		// Actively find the default remote, don't just assume origin
+		defaultRemote, err := git.DefaultRemote()
+		if err != nil {
+			Panic(err, "No default remote")
+		}
+		cfg.CurrentRemote = defaultRemote
 	}
+
+	includeArg, excludeArg := getIncludeExcludeArgs(cmd)
+	pull(determineIncludeExcludePaths(cfg, includeArg, excludeArg))
+
+}
+
+func pull(includePaths, excludePaths []string) {
 
 	ref, err := git.CurrentRef()
 	if err != nil {
 		Panic(err, "Could not pull")
 	}
 
-	includePaths, excludePaths := determineIncludeExcludePaths(pullIncludeArg, pullExcludeArg)
-
 	c := fetchRefToChan(ref.Sha, includePaths, excludePaths)
 	checkoutFromFetchChan(includePaths, excludePaths, c)
+
 }
 
 func init() {
-	pullCmd.Flags().StringVarP(&pullIncludeArg, "include", "I", "", "Include a list of paths")
-	pullCmd.Flags().StringVarP(&pullExcludeArg, "exclude", "X", "", "Exclude a list of paths")
-	RootCmd.AddCommand(pullCmd)
+	RegisterCommand("pull", pullCommand, func(cmd *cobra.Command) {
+		cmd.Flags().StringVarP(&includeArg, "include", "I", "", "Include a list of paths")
+		cmd.Flags().StringVarP(&excludeArg, "exclude", "X", "", "Exclude a list of paths")
+	})
 }

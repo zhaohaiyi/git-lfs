@@ -2,37 +2,16 @@
 
 . "test/testlib.sh"
 
-begin_test "push: upload to bad dns"
-(
-  set -e
-
-  reponame="$(basename "$0" ".sh")-bad-dns"
-  setup_remote_repo "$reponame"
-  clone_repo "$reponame" "$reponame"
-
-  git lfs track "*.dat"
-  printf "hi" > good.dat
-  git add .gitattributes good.dat
-  git commit -m "welp"
-
-  port="$(echo "http://127.0.0.1:63378" | cut -f 3 -d ":")"
-  git config lfs.url "http://git-lfs-bad-dns:$port"
-
-  set +e
-  GIT_TERMINAL_PROMPT=0 git push origin master
-  res="$?"
-  set -e
-
-  refute_server_object "$reponame" "$(calc_oid "hi")"
-  if [ "$res" = "0" ]; then
-    echo "push successful?"
-    exit 1
-  fi
-)
-end_test
-
+# push_fail_test preforms a test expecting a `git lfs push` to fail given the
+# contents of a particular file contained within that push. The Git server used
+# during tests has certain special cases that are triggered by finding specific
+# keywords within a file (as given by the first argument).
+#
+# An optional second argument can be included, "msg", that assert that the
+# contents "msg" was included in the output of a `git lfs push`.
 push_fail_test() {
   local contents="$1"
+  local msg="$2"
 
   set -e
 
@@ -47,9 +26,13 @@ push_fail_test() {
   git commit -m "welp"
 
   set +e
-  git push origin master
-  res="$?"
+  git push origin master 2>&1 | tee push.log
+  res="${PIPESTATUS[0]}"
   set -e
+
+  if [ ! -z "$msg" ]; then
+    grep "$msg" push.log
+  fi
 
   refute_server_object "$reponame" "$(calc_oid "$contents")"
   if [ "$res" = "0" ]; then
@@ -95,6 +78,14 @@ begin_test "push: upload file with storage 500"
   set -e
 
   push_fail_test "status-storage-500"
+)
+end_test
+
+begin_test "push: upload file with storage 503"
+(
+  set -e
+
+  push_fail_test "status-storage-503" "LFS is temporarily unavailable"
 )
 end_test
 

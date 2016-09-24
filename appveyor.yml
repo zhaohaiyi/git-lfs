@@ -1,0 +1,17 @@
+install:
+  - cinst InnoSetup -y
+  - set PATH="C:\Program Files (x86)\Inno Setup 5";%PATH%
+
+build_script:
+  - bash -c 'GOARCH=386 script/bootstrap'
+  - mv bin\git-lfs git-lfs-x86.exe
+  - bash -c 'GOARCH=amd64 script/bootstrap'
+  - mv bin\git-lfs git-lfs-x64.exe
+
+after_build:
+  - iscc script\windows-installer\inno-setup-git-lfs-installer.iss
+
+artifacts:
+  - path: git-lfs-x86.exe
+  - path: git-lfs-x64.exe
+  - path: git-lfs-windows-*.exe

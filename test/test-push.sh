@@ -42,7 +42,7 @@ begin_test "push"
   rm -rf .git/refs/remotes
 
   git lfs push origin push-b 2>&1 | tee push.log
-  grep "(1 of 2 files, 1 skipped)" push.log
+  grep "(1 of 1 files, 1 skipped)" push.log
 )
 end_test
 
@@ -132,7 +132,7 @@ begin_test "push --all (no ref args)"
   [ $(grep -c "push" < push.log) -eq 6 ]
 
   git push --all origin 2>&1 | tee push.log
-  grep "5 files" push.log # should be 6?
+  [ $(grep -c "(3 of 3 files)" push.log) -eq 2 ]
   assert_server_object "$reponame-$suffix" "$oid1"
   assert_server_object "$reponame-$suffix" "$oid2"
   assert_server_object "$reponame-$suffix" "$oid3"
@@ -151,7 +151,7 @@ begin_test "push --all (no ref args)"
   refute_server_object "$reponame-$suffix-2" "$extraoid"
   rm ".git/lfs/objects/${oid1:0:2}/${oid1:2:2}/$oid1"
 
-  # dry run doesn't change
+  echo "dry run missing local object that exists on server"
   git lfs push --dry-run --all origin 2>&1 | tee push.log
   grep "push $oid1 => file1.dat" push.log
   grep "push $oid2 => file1.dat" push.log
@@ -162,7 +162,10 @@ begin_test "push --all (no ref args)"
   [ $(grep -c "push" push.log) -eq 6 ]
 
   git push --all origin 2>&1 | tee push.log
-  grep "5 files, 1 skipped" push.log # should be 5?
+  grep "(2 of 2 files, 1 skipped)" push.log
+  grep "(3 of 3 files)" push.log
+  [ $(grep -c "files)" push.log) -eq 1 ]
+  [ $(grep -c "skipped)" push.log) -eq 1 ]
   assert_server_object "$reponame-$suffix-2" "$oid2"
   assert_server_object "$reponame-$suffix-2" "$oid3"
   assert_server_object "$reponame-$suffix-2" "$oid4"
@@ -340,7 +343,7 @@ begin_test "push object id(s)"
   git lfs push --object-id origin \
     4c48d2a6991c9895bcddcf027e1e4907280bcf21975492b1afbade396d6a3340 \
     2>&1 | tee push.log
-  grep "(0 of 1 files, 1 skipped)" push.log
+  grep "(0 of 0 files, 1 skipped)" push.log
 
   echo "push b" > b.dat
   git add b.dat
@@ -350,7 +353,7 @@ begin_test "push object id(s)"
     4c48d2a6991c9895bcddcf027e1e4907280bcf21975492b1afbade396d6a3340 \
     82be50ad35070a4ef3467a0a650c52d5b637035e7ad02c36652e59d01ba282b7 \
     2>&1 | tee push.log
-  grep "(0 of 2 files, 2 skipped)" push.log
+  grep "(0 of 0 files, 2 skipped)" push.log
 )
 end_test
 
@@ -408,5 +411,164 @@ begin_test "push modified files"
   assert_server_object "$reponame" "$oid3"
   assert_server_object "$reponame" "$oid4"
   assert_server_object "$reponame" "$oid5"
+)
+end_test
+
+begin_test "push with invalid remote"
+(
+  set -e
+  cd repo
+  git lfs push not-a-remote 2>&1 | tee push.log
+  grep "Invalid remote name" push.log
+)
+end_test
+
+begin_test "push ambiguous branch name"
+(
+  set -e
+
+  reponame="$(basename "$0" ".sh")-ambiguous-branch"
+  setup_remote_repo "$reponame"
+  clone_repo "$reponame" "$reponame"
+
+
+  git lfs track "*.dat" 2>&1 | tee track.log
+  grep "Tracking \*.dat" track.log
+
+  NUMFILES=5
+  # generate content we'll use
+  for ((a=0; a < NUMFILES ; a++))
+  do
+    content[$a]="filecontent$a"
+    oid[$a]=$(calc_oid "${content[$a]}")
+  done
+
+  echo "[
+  {
+    \"CommitDate\":\"$(get_date -10d)\",
+    \"Files\":[
+      {\"Filename\":\"file1.dat\",\"Size\":${#content[0]}, \"Data\":\"${content[0]}\"},
+      {\"Filename\":\"file2.dat\",\"Size\":${#content[1]}, \"Data\":\"${content[1]}\"}]
+  },
+  {
+    \"NewBranch\":\"ambiguous\",
+    \"CommitDate\":\"$(get_date -5d)\",
+    \"Files\":[
+      {\"Filename\":\"file3.dat\",\"Size\":${#content[2]}, \"Data\":\"${content[2]}\"}]
+  },
+  {
+    \"CommitDate\":\"$(get_date -2d)\",
+    \"Files\":[
+      {\"Filename\":\"file4.dat\",\"Size\":${#content[3]}, \"Data\":\"${content[3]}\"}]
+  },
+  {
+    \"ParentBranches\":[\"master\"],
+    \"CommitDate\":\"$(get_date -1d)\",
+    \"Files\":[
+      {\"Filename\":\"file1.dat\",\"Size\":${#content[4]}, \"Data\":\"${content[4]}\"}]
+  }
+  ]" | lfstest-testutils addcommits
+
+  # create tag with same name as branch
+  git tag ambiguous
+
+  # lfs push master, should work
+  git lfs push origin master
+
+  # push ambiguous, should fail
+  set +e
+  git lfs push origin ambiguous
+  if [ $? -eq 0 ]
+  then
+    exit 1
+  fi
+  set -e
+
+)
+end_test
+
+begin_test "push (retry with expired actions)"
+(
+  set -e
+
+  reponame="push_retry_expired_action"
+  setup_remote_repo "$reponame"
+  clone_repo "$reponame" "$reponame"
+
+  git lfs track "*.dat"
+  printf "return-expired-action" > a.dat
+  git add .gitattributes a.dat
+
+  git commit -m "add a.dat, .gitattributes" 2>&1 | tee commit.log
+  grep "master (root-commit)" commit.log
+  grep "2 files changed" commit.log
+  grep "create mode 100644 a.dat" commit.log
+  grep "create mode 100644 .gitattributes" commit.log
+
+  GIT_TRACE=1 git push origin master 2>&1 | tee push.log
+
+  [ "1" -eq "$(grep -c "expired, retrying..." push.log)" ]
+  grep "(1 of 1 files)" push.log
+)
+end_test
+
+begin_test "push to raw remote url"
+(
+  set -e
+
+  setup_remote_repo "push-raw"
+  mkdir push-raw
+  cd push-raw
+  git init
+
+  git lfs track "*.dat"
+
+  contents="raw"
+  contents_oid=$(calc_oid "$contents")
+
+  printf "$contents" > raw.dat
+  git add raw.dat .gitattributes
+  git commit -m "add" 2>&1 | tee commit.log
+  grep "master (root-commit)" commit.log
+  grep "2 files changed" commit.log
+  grep "create mode 100644 raw.dat" commit.log
+  grep "create mode 100644 .gitattributes" commit.log
+
+  refute_server_object push-raw "$contents_oid"
+
+  git lfs push $GITSERVER/push-raw master
+
+  assert_server_object push-raw "$contents_oid"
+)
+end_test
+
+begin_test "push (with invalid object size)"
+(
+  set -e
+
+  reponame="push-invalid-object-size"
+  setup_remote_repo "$reponame"
+  clone_repo "$reponame" "$reponame"
+
+  git lfs track "*.dat"
+  contents="return-invalid-size"
+  printf "$contents" > a.dat
+
+  git add a.dat .gitattributes
+  git commit -m "add a.dat, .gitattributes" 2>&1 | tee commit.log
+  grep "master (root-commit)" commit.log
+  grep "2 files changed" commit.log
+  grep "create mode 100644 a.dat" commit.log
+  grep "create mode 100644 .gitattributes" commit.log
+
+  set +e
+  git push origin master 2>&1 2> push.log
+  res="$?"
+  set -e
+
+  grep "invalid size (got: -1)" push.log
+  [ "0" -ne "$res" ]
+
+  refute_server_object "$reponame" "$(calc_oid "$contents")"
 )
 end_test
